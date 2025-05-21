@@ -15,6 +15,6 @@ CoAuthors: Francesc Miquel, Germán Osorio
 
 This software has been developed for Rumi Project, allowing us to get free responses and compare intelligence.
 
-prueba
+
 
 prueba2
