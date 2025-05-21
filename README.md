@@ -1,4 +1,3 @@
-<<<<<<< HEAD:README.md
 **Free LLM Benchmark**
 
 1-run installer.bat to install python libraries
@@ -14,6 +13,9 @@
 5-open html report in the /html/ folder using any browser
 
 DISCLAIMER: user is responsible for the use of the software
-CoAuthors: Francesc Miquel, German Osorio
+
+## Contributors
+- **Francesc Miquel**
+- **Germán Osorio**
 
 This software has been developed for Rumi Project, allowing us to get free responses and compare intelligence.
