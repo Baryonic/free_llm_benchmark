@@ -12,3 +12,7 @@
 
 DISCLAIMER: user is responsible for the use of the software
 CoAuthors: Francesc Miquel, Germán Osorio
+
+This software has been developed for Rumi Project, allowing us to get free responses and compare intelligence.
+
+
