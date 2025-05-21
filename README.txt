@@ -11,5 +11,4 @@
 5-open html report in the /html/ folder using any browser
 
 DISCLAIMER: user is responsible for the use of the software
-Main_Autor: Francesc Miquel
-
+CoAuthors: Francesc Miquel, Germán Osorio
