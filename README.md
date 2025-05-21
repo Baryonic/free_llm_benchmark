@@ -1,5 +1,8 @@
 ## Free LLM Benchmark
 
+## DISCLAIMER:
+- **user is responsible** for the use of the software
+- open router api key required (requires 10dollar account activation although the program doesnt use the credits you purchase in openrouter)
 ## how to run
 
 - 1-run installer.bat to install python libraries
@@ -12,8 +15,12 @@
 		python free_llm_tester.py
 - 5-open html report in the /html/ folder using any browser
 
-DISCLAIMER: user is responsible for the use of the software
-
+# more functionality
+- html report generated for each question in /html/ dir
+- xcel report generated in /xcell/ (BETA)
+- blacklist.csv to exclude free models from the benchmark
+- failed reports go to /xcell_failed/ and /html_failed/
+- successful queries go to "preguntas_resueltas.csv"
 ## Contributors
 - **Francesc Miquel**
 - **Germán Osorio**
