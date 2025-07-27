@@ -131,6 +131,17 @@ tr:nth-child(even) {
     background: #555;
 }
 
+/* Timestamps column styles */
+.timestamps {
+    font-size: 0.9em;
+    color: #2c3e50;
+    text-align: center;
+    background-color: #eaf2f8;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
 /* Responsive design */
 @media screen and (max-width: 1200px) {
     table {

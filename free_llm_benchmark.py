@@ -6,12 +6,14 @@ from deep_translator import GoogleTranslator
 import os
 import re
 import shutil
+import time
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
-#(in cmd) setx OPENROUTER_API_KEY "api-key"
+
+# (in cmd) setx OPENROUTER_API_KEY "api-key"
 API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 # API endpoints and headers
@@ -22,6 +24,11 @@ headers = {
     "Authorization": f"Bearer {API_KEY}",
     "Content-Type": "application/json"
 }
+
+# Configurable delay and retry settings
+REQUEST_DELAY = .2  # seconds between API requests
+MAX_RETRIES = 2    # number of retries for 429 errors
+RETRY_BACKOFF = 10 # seconds to wait after 429 error
 
 # Global variables for tracking
 failed_questions = []
@@ -198,8 +205,8 @@ def query_model(model_id, prompt, max_tokens):
     """
     Sends a query to the OpenRouter API for the given model using the provided prompt and max_tokens.
     Returns a tuple containing the processed response text and the raw response data.
+    Implements retry logic for 429 errors and logs timestamps.
     """
-    print(f"\033[94mquery payload to \033[92m{model_id},\033[94m max_tokens=\033[92m{max_tokens}")
     payload = {
         "messages": [{  
             "role": "user",
@@ -208,32 +215,46 @@ def query_model(model_id, prompt, max_tokens):
         "model": model_id,
         "max_tokens": max_tokens
     }
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
+    attempt = 0
+    while attempt <= MAX_RETRIES:
+        print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sending request to {model_id} (attempt {attempt+1})")
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload)
+            if response.status_code == 429:
+                print(f"\033[31mReceived 429 Too Many Requests. Waiting {RETRY_BACKOFF} seconds before retry...\033[0m")
+                time.sleep(RETRY_BACKOFF)
+                attempt += 1
+                continue
+            response.raise_for_status()
+            data = response.json()
 
-        if data and "choices" in data:
-            choices = data.get("choices", [])
-            if choices and isinstance(choices, list):
-                # Get the message content
-                message = choices[0].get("message", {})
-                processed_response = message.get("content", "No response.")
-                
-                # Check if the response contains error indicators or chain of thought
-                if any(indicator in processed_response.lower() for indicator in ["error:", "i apologize", "i'm sorry", "i cannot", "i don't", "i'm not sure", "i'm unable"]):
-                    # Keep the error message or chain of thought as is
-                    return processed_response, data
-                elif not processed_response.strip():
-                    return "Error: Empty response received.", data
+            if data and "choices" in data:
+                choices = data.get("choices", [])
+                if choices and isinstance(choices, list):
+                    # Get the message content
+                    message = choices[0].get("message", {})
+                    processed_response = message.get("content", "No response.")
+                    # Check if the response contains error indicators or chain of thought
+                    if any(indicator in processed_response.lower() for indicator in ["error:", "i apologize", "i'm sorry", "i cannot", "i don't", "i'm not sure", "i'm unable"]):
+                        # Keep the error message or chain of thought as is
+                        return processed_response, data
+                    elif not processed_response.strip():
+                        return "Error: Empty response received.", data
+                else:
+                    processed_response = "Error: Invalid API structure."
             else:
-                processed_response = "Error: Invalid API structure."
-        else:
-            processed_response = "Error: No valid response received."
-        return processed_response, data
-
-    except requests.exceptions.RequestException as e:
-        return f"API Request Error: {str(e)}", {}
+                processed_response = "Error: No valid response received."
+            return processed_response, data
+        except requests.exceptions.RequestException as e:
+            # If it's a 429 error, handle with retry, else break
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                print(f"\033[31mCaught 429 error in exception. Waiting {RETRY_BACKOFF} seconds before retry...\033[0m")
+                time.sleep(RETRY_BACKOFF)
+                attempt += 1
+                continue
+            return f"API Request Error: {str(e)}", {}
+        break
+    return f"API Request Error: 429 Too Many Requests (after {MAX_RETRIES+1} attempts)", {}
 
 def create_excel_report_for_prompt(original_spanish_prompt, english_prompt, results, timestamp, safe_prompt):
     """
@@ -367,9 +388,14 @@ def create_html_report_for_prompt(original_spanish_prompt, english_prompt, resul
         <thead>
             <tr>
                 <th>Model</th>
+                <th>Request Time</th>
+                <th>Start Time</th> <!-- New column -->
+                <th>End Time</th> <!-- New column -->
+                <th>Duration (s)</th> <!-- New column -->
                 <th>Token Usage</th>
                 <th>Characters</th>
                 <th>Chars/Token</th>
+                <th>Timestamps</th> <!-- New column for timestamps -->
                 <th>English Response</th>
                 <th>Spanish Translation (by Google Translate)</th>
             </tr>
@@ -380,7 +406,11 @@ def create_html_report_for_prompt(original_spanish_prompt, english_prompt, resul
     for result in results:
         model_name = result["model_name"]
         model_id = result.get("model_id", "Unknown ID")
-        
+        request_time = result.get("request_time", "N/A")
+        start_time = result.get("start_time", "N/A")  # New field
+        end_time = result.get("end_time", "N/A")  # New field
+        duration = result.get("duration", "N/A")  # New field
+
         # Process token information
         tokens = result.get("tokens", {})
         if isinstance(tokens, dict):
@@ -391,19 +421,19 @@ def create_html_report_for_prompt(original_spanish_prompt, english_prompt, resul
         else:
             token_info = f'<div class="token-info">Total: {tokens}</div>'
             total_tokens = tokens
-        
+
         # Calculate character counts and efficiency
         english_response = result.get("english_response", "No response")
         char_count = len(english_response) if english_response != "No response" else 0
-        
+
         if isinstance(total_tokens, (int, float)) and total_tokens > 0:
             efficiency = f"{char_count/total_tokens:.2f}"
         else:
             efficiency = "N/A"
-        
-        char_info = f'<div class="char-info">{char_count:,}</div>'
+
+        char_info = f'<div class="char-info">{char_count:,}</div>'  
         efficiency_info = f'<div class="efficiency">{efficiency}</div>'
-        
+
         # Format English response
         if english_response:
             formatted_response = english_response.replace("\n", "<br>")
@@ -430,12 +460,17 @@ def create_html_report_for_prompt(original_spanish_prompt, english_prompt, resul
             spanish_response = '<div class="error-message">Translation failed</div>'
         
         html_content += f"""<tr>
-            <td>{model_name}<br><span class="model-id">{model_id}</span></td>
+            <td>{model_name}<br><span class=\"model-id\">{model_id}</span></td>
+            <td>{request_time}</td>
+            <td>{start_time}</td> <!-- New field -->
+            <td>{end_time}</td> <!-- New field -->
+            <td>{duration if isinstance(duration, (int, float)) else 'N/A'}</td> <!-- Fixed formatting -->
             <td>{token_info}</td>
             <td>{char_info}</td>
             <td>{efficiency_info}</td>
-            <td class="response-cell"><div class="english-response">{english_response}</div></td>
-            <td class="response-cell"><div class="spanish-response">{spanish_response}</div></td>
+            <td>{start_time} - {end_time}</td> <!-- New column for timestamps -->
+            <td class=\"response-cell\"><div class=\"english-response\">{english_response}</div></td>
+            <td class=\"response-cell\"><div class=\"spanish-response\">{spanish_response}</div></td>
         </tr>
         """
 
@@ -506,26 +541,39 @@ def process_model_response(args):
     print(f"\n\033[96m{'='*80}\033[0m")
     print(f"\033[96mProcessing Model: {details['name']}\033[0m")
     print(f"\033[96m{'='*80}\033[0m")
-    
     try:
+        # Record start time
+        start_time = datetime.datetime.now()
+        print(f"\033[93mStart Time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\033[0m")
+
         # Get English response
         print(f"\n\033[93mSending English prompt to {details['name']}:\033[0m")
         print(f"\033[93mPrompt: {english_question}\033[0m")
         english_response, raw_data = query_model(model_id, english_question, max_tokens)
         print(f"\n\033[92mReceived English response from {details['name']}:\033[0m")
         print(f"\033[92mResponse: {english_response}\033[0m")
-        
+
+        # Record end time and calculate duration
+        end_time = datetime.datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        print(f"\033[93mEnd Time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\033[0m")
+        print(f"\033[93mDuration: {duration:.2f} seconds\033[0m")
+
+        # Add delay between requests for rate limiting
+        print(f"\033[90mWaiting {REQUEST_DELAY} seconds before next request...\033[0m")
+        time.sleep(REQUEST_DELAY)
+
         # Check if response is an error message
         is_error = any(error in english_response.lower() for error in [
             "error:", "no valid response received", "no response", "error processing response"
         ])
-        
+
         # Only translate if not an error message
         if not is_error:
             print(f"\n\033[95mTranslating response from {details['name']} back to Spanish using Gemini...\033[0m")
             print(f"\033[95mEnglish text to translate: {english_response}\033[0m")
             spanish_response = translate_text(english_response, "spanish", GEMINI_MODEL)
-            
+
             if not spanish_response:
                 print(f"\033[31mWarning: Translation failed for {details['name']}\033[0m")
                 print(f"\033[31m- Model: {details['name']}\033[0m")
@@ -537,7 +585,7 @@ def process_model_response(args):
         else:
             print(f"\n\033[93mSkipping translation for error message\033[0m")
             spanish_response = english_response  # Use the same error message in Spanish
-        
+
         # Process token information
         tokens = {}
         if raw_data and "usage" in raw_data:
@@ -551,7 +599,8 @@ def process_model_response(args):
         else:
             tokens = "N/A"
             print(f"\033[94mToken usage: N/A\033[0m")
-        
+
+        request_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"\033[96m{'='*80}\033[0m")
         return {
             "model_name": details["name"],
@@ -559,7 +608,11 @@ def process_model_response(args):
             "tokens": tokens,
             "english_response": english_response,
             "spanish_response": spanish_response,
-            "translated_by": "Google Translate"
+            "translated_by": "Google Translate",
+            "request_time": request_time,  # <-- add this line
+            "start_time": start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            "end_time": end_time.strftime('%Y-%m-%d %H:%M:%S'),
+            "duration": duration
         }
     except Exception as e:
         print(f"\033[31mError processing {details['name']}: {str(e)}\033[0m")
@@ -571,7 +624,10 @@ def process_model_response(args):
             "tokens": "N/A",
             "english_response": "Error processing response",
             "spanish_response": "Error processing response",
-            "translated_by": "Google Translate"
+            "translated_by": "Google Translate",
+            "start_time": "N/A",
+            "end_time": "N/A",
+            "duration": "N/A"
         }
 
 def process_question(question):
