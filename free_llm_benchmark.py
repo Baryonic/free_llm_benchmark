@@ -27,8 +27,8 @@ headers = {
 
 # Configurable delay and retry settings
 REQUEST_DELAY = .2  # seconds between API requests
-MAX_RETRIES = 2    # number of retries for 429 errors
-RETRY_BACKOFF = 10 # seconds to wait after 429 error
+MAX_RETRIES = 3    # number of retries for 429 or 503 errors
+INITIAL_RETRY_BACKOFF = 5 # seconds to wait for the first retry
 
 # Global variables for tracking
 failed_questions = []
@@ -205,7 +205,7 @@ def query_model(model_id, prompt, max_tokens):
     """
     Sends a query to the OpenRouter API for the given model using the provided prompt and max_tokens.
     Returns a tuple containing the processed response text and the raw response data.
-    Implements retry logic for 429 errors and logs timestamps.
+    Implements retry logic for 429 and 503 errors with exponential backoff.
     """
     payload = {
         "messages": [{  
@@ -220,13 +220,19 @@ def query_model(model_id, prompt, max_tokens):
         print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sending request to {model_id} (attempt {attempt+1})")
         try:
             response = requests.post(API_URL, headers=headers, json=payload)
-            if response.status_code == 429:
-                print(f"\033[31mReceived 429 Too Many Requests. Waiting {RETRY_BACKOFF} seconds before retry...\033[0m")
-                time.sleep(RETRY_BACKOFF)
+            
+            if response.status_code in [429, 503]:
+                wait_time = INITIAL_RETRY_BACKOFF * (2 ** attempt)
+                print(f"\033[31mReceived {response.status_code} error. Waiting {wait_time} seconds before retry...\033[0m")
+                time.sleep(wait_time)
                 attempt += 1
                 continue
+
             response.raise_for_status()
-            data = response.json()
+            try:
+                data = response.json()
+            except requests.exceptions.JSONDecodeError:
+                return f"API Request Error: Invalid JSON response from model {model_id}. Response text: {response.text}", {}
 
             if data and "choices" in data:
                 choices = data.get("choices", [])
@@ -246,15 +252,15 @@ def query_model(model_id, prompt, max_tokens):
                 processed_response = "Error: No valid response received."
             return processed_response, data
         except requests.exceptions.RequestException as e:
-            # If it's a 429 error, handle with retry, else break
-            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
-                print(f"\033[31mCaught 429 error in exception. Waiting {RETRY_BACKOFF} seconds before retry...\033[0m")
-                time.sleep(RETRY_BACKOFF)
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code in [429, 503]:
+                wait_time = INITIAL_RETRY_BACKOFF * (2 ** attempt)
+                print(f"\033[31mCaught {e.response.status_code} error in exception. Waiting {wait_time} seconds before retry...\033[0m")
+                time.sleep(wait_time)
                 attempt += 1
                 continue
             return f"API Request Error: {str(e)}", {}
         break
-    return f"API Request Error: 429 Too Many Requests (after {MAX_RETRIES+1} attempts)", {}
+    return f"API Request Error: Failed after {MAX_RETRIES+1} attempts", {}
 
 def create_excel_report_for_prompt(original_spanish_prompt, english_prompt, results, timestamp, safe_prompt):
     """
@@ -702,9 +708,9 @@ def process_pending_questions():
     Reads pending questions from 'preguntas_pendientes.csv' and processes them
     with translation workflow.
     """
-    print("\n\033[94m{'='*80}\033[0m")
+    print(f"\n\033[94m{'='*80}\033[0m")
     print("\033[94mStarting Question Processing Pipeline\033[0m")
-    print("\033[94m{'='*80}\033[0m")
+    print(f"\033[94m{'='*80}\033[0m")
     
     # Load blacklist at the start
     global blacklisted_models
@@ -765,9 +771,9 @@ def process_pending_questions():
     print(f"\033[92mUpdated pending questions file with {len(remaining_questions)} remaining questions\033[0m")
 
     # Generate final report
-    print("\n\033[94m{'='*80}\033[0m")
-    print("\033[94mProcessing Summary Report\033[0m")
-    print("\033[94m{'='*80}\033[0m")
+    print(f"\n\033[94m{'='*20}\033[0m")
+    print(f"\033[93mProcessing Summary Report\033[0m")
+    print(f"\033[94m{'='*20}\033[0m")
     
     print("\n\033[92mSuccessfully Processed Questions:\033[0m")
     print(f"Total: {len(successful_questions)}")
@@ -800,5 +806,6 @@ def process_pending_questions():
     print(f"\033[94m{'='*80}\033[0m")
 
 if __name__ == "__main__":
-    print("\033[94mrunning FREE AUTO TESTER HTML 4 (fath4.py)")
+    print("\033[94mrunning \033[92mFREE LLM BENCHMARK \033[94mby \033[95mKEYDAY ELECTRONICS SOFTWARE \033[94mand \033[95mRUMI EXPLORA")
+    print(f"\033[94mExecuting from: \033[93m{os.path.abspath(__file__)}")
     process_pending_questions()

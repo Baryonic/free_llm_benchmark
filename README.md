@@ -17,7 +17,7 @@
 
 # more functionality
 - html report generated for each question in /html/ dir
-- xcel report generated in /xcell/ (BETA)
+- xcel report generated in /xcell/ (BETA) (NOT WORKING)
 - blacklist.csv to exclude free models from the benchmark
 - failed reports go to /xcell_failed/ and /html_failed/
 - successful queries go to "preguntas_resueltas.csv"
