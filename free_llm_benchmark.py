@@ -36,6 +36,9 @@ failed_files = []  # Track failed files with reasons
 successful_questions = []
 small_files = []  # Track files that are too small
 blacklisted_models = set()  # Track blacklisted models
+total_prompted_models = 0
+successful_answers = 0
+failed_models_info = []
 
 # Create required directories if they don't exist
 HTML_DIR = os.path.join(os.getcwd(), "html")
@@ -723,6 +726,19 @@ def process_question(question):
     print("\n\033[93mStep 5: Generating HTML report...\033[0m")
     # Create HTML report
     report_file = create_html_report_for_prompt(question, english_question, results)
+
+    # Update and print statistics
+    global total_prompted_models, successful_answers, failed_models_info
+    total_prompted_models += len(results)
+    for result in results:
+        english_response = result.get("english_response", "")
+        is_error = not english_response or any(error in english_response.lower() for error in [
+            "error:", "no valid response received", "no response", "error processing response", "invalid json response"
+        ])
+        if is_error:
+            failed_models_info.append((result['model_name'], english_response))
+        else:
+            successful_answers += 1
     
     if report_file is None:
         print(f"\033[31mFailed to generate valid report for question: {question}\033[0m")
@@ -746,6 +762,11 @@ def process_pending_questions():
     # Load blacklist at the start
     global blacklisted_models
     blacklisted_models = load_blacklist()
+
+    if blacklisted_models:
+        print("\n\033[35mBlacklisted Models:\033[0m")
+        for model_id in sorted(blacklisted_models):
+            print(f"\033[35m- {model_id}\033[0m")
     
     print("\n\033[93mStep 1: Reading pending questions file...\033[0m")
     pending_file = "preguntas_pendientes.csv"
@@ -802,9 +823,9 @@ def process_pending_questions():
     print(f"\033[92mUpdated pending questions file with {len(remaining_questions)} remaining questions\033[0m")
 
     # Generate final report
-    print(f"\n\033[94m{'='*20}\033[0m")
+    print(f"\n\033[94m{'='*80}\033[0m")
     print(f"\033[93mProcessing Summary Report\033[0m")
-    print(f"\033[94m{'='*20}\033[0m")
+    print(f"\033[94m{'='*80}\033[0m")
     
     print("\n\033[92mSuccessfully Processed Questions:\033[0m")
     print(f"Total: {len(successful_questions)}")
@@ -831,6 +852,18 @@ def process_pending_questions():
     print(f"Total: {len(blacklisted_models)}")
     for model_id in sorted(blacklisted_models):
         print(f"- {model_id}")
+
+    print("\n\033[94mModel Performance Summary:\033[0m")
+    print(f"\033[92m- Total models prompted: {total_prompted_models}\033[0m")
+    print(f"\033[92m- Successful answers: {successful_answers}\033[0m")
+    failed_count = len(failed_models_info)
+    print(f"\033[31m- Failed answers: {failed_count}\033[0m")
+    if failed_models_info:
+        print("\033[31m  Failed Models:\033[0m")
+        for model_name, reason in failed_models_info:
+            # Truncate long reasons
+            reason_summary = (reason[:70] + '...') if len(reason) > 70 else reason
+            print(f"\033[31m  - {model_name}: {reason_summary}\033[0m")
     
     print(f"\n\033[94m{'='*80}\033[0m")
     print("\033[94mQuestion Processing Pipeline Complete\033[0m")
