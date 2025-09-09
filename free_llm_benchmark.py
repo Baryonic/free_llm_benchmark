@@ -165,7 +165,8 @@ def translate_text(text, target_language, model_id=None):
     """
     print(f"\n\033[93mTranslation Debug Info:\033[0m")
     print(f"\033[93m- Target Language: {target_language}\033[0m")
-    print(f"\033[93m- Text to translate: {text}\033[0m")
+    # Print first 100 chars of text to translate
+    print(f"\033[93m- Text to translate (first 100 chars): {text[:100]}...\033[0m")
     
     try:
         # Map target_language to language codes
@@ -181,15 +182,45 @@ def translate_text(text, target_language, model_id=None):
         else:  # spanish
             source = 'en'
             target = 'es'
-        
-        # Perform translation
-        print(f"\033[93m- Sending translation request...\033[0m")
+
         translator = GoogleTranslator(source=source, target=target)
-        translation = translator.translate(text)
+
+        if len(text) > 4500:
+            print(f"\033[93m- Text is long ({len(text)} chars), splitting into chunks for translation.\033[0m")
+            chunks = []
+            start_index = 0
+            while start_index < len(text):
+                search_start_pos = start_index + 4000
+                if search_start_pos >= len(text):
+                    end_index = len(text)
+                else:
+                    period_pos = text.find('.', search_start_pos)
+                    if period_pos != -1:
+                        end_index = period_pos + 1
+                    else:
+                        end_index = len(text)
+                
+                chunks.append(text[start_index:end_index])
+                start_index = end_index
+
+            translated_chunks = []
+            for i, chunk in enumerate(chunks):
+                print(f"\033[93m- Translating chunk {i+1}/{len(chunks)} ({len(chunk)} chars)...\033[0m")
+                translated_chunk = translator.translate(chunk)
+                if translated_chunk:
+                    translated_chunks.append(translated_chunk)
+                else:
+                    print(f"\033[31m- Translation failed for chunk {i+1}\033[0m")
+                    translated_chunks.append("[Translation for this chunk failed]")
+
+            translation = "".join(translated_chunks)
+        else:
+            # Perform translation for texts shorter than 4500 chars
+            print(f"\033[93m- Sending translation request for the whole text ({len(text)} chars)...\033[0m")
+            translation = translator.translate(text)
         
         if translation:
-            print(f"\033[92m- Translation successful:\033[0m")
-            print(f"\033[92m  {translation}\033[0m")
+            print(f"\033[92m- Translation successful.\033[0m")
             return translation
         else:
             print(f"\033[31m- Translation failed: No translation received\033[0m")
